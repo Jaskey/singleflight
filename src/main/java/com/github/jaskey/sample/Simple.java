@@ -24,43 +24,38 @@ public class Simple {
 
         ExecutorService es = Executors.newCachedThreadPool();
 
-        //相同的请求并发来N次，会只有一个请求进去
-        for (int i=0;i<1000;i++) {
-            fakeRPC(sg, es, "req1",1000);
-            fakeRPC(sg, es, "req2",1000);
-        }
-
-        try {
-            sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
-        //不同的请求相互独立不受影响
-        for (int i=3;i<10;i++) {
-            fakeRPC(sg, es, "req"+i, 100);
+        //并发请求N次，只有一个请求进去
+        for (int i=0;i<10;i++) {
+            fakeRPCInNewThread(sg, es, "req_x",1000);
+            fakeRPCInNewThread(sg, es, "req_y",1000); //不同的请求key，相互独立不受影响
         }
 
         logger.info("------------submit timeout req ends ---------" );
 
+        es.shutdown();
     }
 
-    //假装有一个rpc请求，cost是其这个RPC的耗时，cost是负数则会抛出异常
-    public static Future<String> fakeRPC(SingleFlight<String> sg, ExecutorService es, String requestId, long cost) {
+    public static Future<String> fakeExceptionResultInNewThread(SingleFlight<String> sg, ExecutorService es, String requestId) {
+        return fakeRPCInNewThread(sg,es,requestId,-1);
+    }
 
+
+        //假装有一个rpc请求，cost是其这个RPC的耗时，cost是负数则会抛出异常
+    public static Future<String> fakeRPCInNewThread(SingleFlight<String> sg, ExecutorService es, String requestId, long cost) {
         return es.submit(() -> {
             String res = null;
             try {
-                res = sg.doEntry(requestId, keyInner -> {
+                res = sg.goFlight(requestId, keyInner -> {
                     String now = new SimpleDateFormat("HH:mm:ss.SSS").format(new Date());
-                    logger.info("[INNER CALLS][{}] load func calls {}", String.valueOf(cnt.incrementAndGet()), keyInner);
+                    String result = "CALL_RESULT: "+ keyInner + "_" + now;
+                    logger.info("[ACTUAL CALLS][{}] load func calls, res: {}", String.valueOf(cnt.incrementAndGet()), result);
                     if (cost>0) {
                         try {
                             sleep(cost);//假装rpc耗时
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
-                        return "res_"+ keyInner + "_" + now;
+                        return result;
                     } else { //cost是负数，则抛异常
                         throw new RuntimeException("fake rpc error");
                     }

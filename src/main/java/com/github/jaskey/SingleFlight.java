@@ -7,12 +7,14 @@ import java.util.function.Function;
 
 public class SingleFlight<T> {
     private final ConcurrentHashMap<String/*key*/, Result<T>> resultsMap = new ConcurrentHashMap<>();
-    //出现错误是否放行等待请求数。
-    //注意，可能会使得压力瞬间放大的情况，请谨慎评估。
-    //0表示不放过，透传异常。负数表示全部放过，不透传任何一个异常，慎用。
+
+    //出现错误是否放行等待请求数。注意可能会导致压力瞬间放大，请谨慎评估。
+    //   0表示不放过，直接透传异常（默认）。
+    //   正数表示异常的时候放行的请求数
+    //   负数表示等待的请求全部放过，不会透传任何一个异常，慎用。
     private  int permitsWhenException = 0;
     
-    //默认是不超
+    //超时策略，默认是
     private TimeoutStrategy timeoutStrategy = TimeoutStrategy.throwException(Long.MAX_VALUE);
 
     public SingleFlight() {}
@@ -21,7 +23,7 @@ public class SingleFlight<T> {
         this.permitsWhenException = permitsWhenException;
     }
 
-    public T doEntry(String key, Function<String,T> loadFunc) throws Exception {
+    public T goFlight(String key, Loader<String,T> loadFunc) throws Exception {
         Result<T> thisResult  = new Result<>(permitsWhenException, timeoutStrategy.getPermitsWhenTimeout());
         Result<T> ingResult = resultsMap.putIfAbsent(key, thisResult);//放不进去证明有进行中的请求
         T ret = null;
@@ -38,9 +40,9 @@ public class SingleFlight<T> {
                 if (isFinish) {//成功了
                     if (ingResult.lastException != null) {//有错误
                         //避免一个错全部等待的都跟着错，以下适当放过
-                        if (ingResult.exceptionPermitsSemaphore.availablePermits()<0 || //一开始设置负数，直接放过
-                                ingResult.exceptionPermitsSemaphore.tryAcquire()) {//放行数量还够
-                            ret = loadFunc.apply(key);
+                        if (ingResult.exceptionPermitsSemaphore.availablePermits() < 0 || //负数意味着全部请求放过
+                                ingResult.exceptionPermitsSemaphore.tryAcquire()) {//放行数量还够的部分，放过
+                            ret = loadFunc.load(key);
                         } else {
                             throw ingResult.lastException;
                         }
@@ -61,10 +63,10 @@ public class SingleFlight<T> {
         return ret;
     }
 
-    private T execute(String key, Function<String, T> loadFunc, Result<T> thisResult) {
+    private T execute(String key, Loader<String, T> loadFunc, Result<T> thisResult) throws Exception {
         T ret;
         try {
-            thisResult.res = loadFunc.apply(key);
+            thisResult.res = loadFunc.load(key);
             ret = thisResult.res;
         } catch (Exception e) {
             thisResult.lastException = e;
