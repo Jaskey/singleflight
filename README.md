@@ -46,6 +46,22 @@ JSingleflight则可以轻松实现这样的线程模型。如下图所示，并�
             }).start();
         }
 
+输出：
+
+```
+querying from database...
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+singleflight result = data_1_17135
+```
+可以看到，10条线程都是返回了data_1_17135的数据，但是回调函数只进入了一次（“querying from database” 只输出了一次），从而证明有9条线程实际上是复用了请求结果。
 
 # 特性
 SingleFlight除了基本特性外，对比`Go`版本的`singleflight`，还增加了对异常、超时的处理
